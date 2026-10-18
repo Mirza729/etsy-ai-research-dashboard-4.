@@ -1,223 +1,219 @@
 
 import streamlit as st
 import pandas as pd
-from io import StringIO
+import requests
 
 st.set_page_config(
-    page_title="Etsy AI Research Dashboard",
-    page_icon="🌿",
+    page_title="Etsy Research Dashboard",
+    page_icon="🔎",
     layout="wide"
 )
 
 st.title("🔎 Etsy AI Research Dashboard")
-st.caption("Product Hunting | Keyword Research | Competition | SEO")
+st.caption("Listing research + keyword insights | Free starter version")
 
-# Demo data — real Etsy data abhi connected nahi hai
-DATA = [
-    {"Product": "Personalized Necklace", "Niche": "Jewellery", "Price": 25.99, "Competition": "High"},
-    {"Product": "Custom Birthstone Ring", "Niche": "Jewellery", "Price": 32.00, "Competition": "Medium"},
-    {"Product": "Artificial Flower Arrangement", "Niche": "Garden", "Price": 45.00, "Competition": "Medium"},
-    {"Product": "Crochet Christmas Sweater", "Niche": "Crochet", "Price": 48.00, "Competition": "High"},
-    {"Product": "Personalized Garden Sign", "Niche": "Garden", "Price": 42.00, "Competition": "Low"},
-    {"Product": "Crochet Baby Booties", "Niche": "Crochet", "Price": 24.00, "Competition": "Medium"},
-    {"Product": "Minimalist Gold Necklace", "Niche": "Jewellery", "Price": 39.00, "Competition": "High"},
-    {"Product": "Artificial Wedding Bouquet", "Niche": "Garden", "Price": 55.00, "Competition": "Medium"},
-]
+# Get API key from Streamlit Secrets, if configured.
+try:
+    api_key = st.secrets.get("ETSY_API_KEY", "")
+except Exception:
+    api_key = ""
 
-df = pd.DataFrame(DATA)
+with st.sidebar:
+    st.header("Settings")
+    st.write("Etsy API listing research")
+    if not api_key:
+        api_key = st.text_input(
+            "Etsy API key",
+            type="password",
+            help="Enter keystring:shared_secret. "
+                 "Do not paste it into GitHub code."
+        )
+    st.caption("Search demand is not supplied by this listing search.")
 
-# Sidebar
-st.sidebar.header("⚙️ Research Filters")
-niche = st.sidebar.selectbox(
-    "Choose niche",
-    ["All", "Jewellery", "Garden", "Crochet"]
-)
-min_price = st.sidebar.number_input(
-    "Minimum price ($)", min_value=0.0, value=0.0
-)
-max_price = st.sidebar.number_input(
-    "Maximum price ($)", min_value=0.0, value=1000.0
-)
-competition = st.sidebar.selectbox(
-    "Competition", ["All", "Low", "Medium", "High"]
-)
-
-filtered = df.copy()
-
-if niche != "All":
-    filtered = filtered[filtered["Niche"] == niche]
-
-filtered = filtered[
-    (filtered["Price"] >= min_price)
-    & (filtered["Price"] <= max_price)
-]
-
-if competition != "All":
-    filtered = filtered[filtered["Competition"] == competition]
-
-# Summary
-c1, c2, c3 = st.columns(3)
-c1.metric("Products Found", len(filtered))
-c2.metric(
-    "Average Price",
-    f"${filtered['Price'].mean():.2f}" if len(filtered) else "$0.00"
-)
-c3.metric(
-    "Low Competition",
-    int((filtered["Competition"] == "Low").sum())
-)
-
-st.divider()
-
-# Tabs
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "🛍️ Product Hunter",
-    "🔑 Keyword Research",
-    "📊 Competition",
-    "✍️ SEO Generator"
+    "🔑 Keyword Insights",
+    "📁 Export"
 ])
 
-with tab1:
-    st.subheader("Product Ideas")
-    st.info("Demo dataset — products aur metrics live Etsy research nahi hain.")
-    st.dataframe(filtered, use_container_width=True, hide_index=True)
+if "results" not in st.session_state:
+    st.session_state.results = pd.DataFrame()
 
-    csv = filtered.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇️ Download Products CSV",
-        data=csv,
-        file_name="etsy_product_research.csv",
-        mime="text/csv"
+if "total_count" not in st.session_state:
+    st.session_state.total_count = None
+
+with tab1:
+    st.subheader("Search Etsy active listings")
+    keyword = st.text_input(
+        "Product or keyword",
+        value="artificial wedding bouquet",
+        key="listing_keyword"
     )
+    limit = st.selectbox("Listings to retrieve", [10, 25, 50, 100], index=1)
+
+    if st.button("Search real listings", type="primary"):
+        if not api_key.strip():
+            st.warning(
+                "API key missing. Register an Etsy developer app "
+                "and enter its key to try this feature."
+            )
+        elif not keyword.strip():
+            st.warning("Enter a keyword first.")
+        else:
+            try:
+                response = requests.get(
+                    "https://api.etsy.com/v3/application/listings/active",
+                    headers={"x-api-key": api_key.strip()},
+                    params={
+                        "keywords": keyword.strip(),
+                        "limit": limit,
+                        "sort_on": "score"
+                    },
+                    timeout=25
+                )
+
+                if response.status_code != 200:
+                    st.error(
+                        f"Etsy API returned HTTP {response.status_code}. "
+                        "Check your API credentials, access and API limits."
+                    )
+                    st.code(response.text[:1200])
+                else:
+                    payload = response.json()
+                    rows = []
+
+                    for item in payload.get("results", []):
+                        price = item.get("price") or {}
+                        amount = price.get("amount")
+                        divisor = price.get("divisor") or 100
+                        price_value = (
+                            amount / divisor
+                            if amount is not None else None
+                        )
+
+                        rows.append({
+                            "Title": item.get("title", ""),
+                            "Price": price_value,
+                            "Currency": price.get("currency_code", ""),
+                            "Listing ID": item.get("listing_id", ""),
+                            "URL": item.get("url", ""),
+                            "Created": item.get(
+                                "creation_timestamp", ""
+                            )
+                        })
+
+                    st.session_state.results = pd.DataFrame(rows)
+                    st.session_state.total_count = payload.get("count")
+                    st.success(f"Retrieved {len(rows)} listings.")
+
+            except requests.RequestException as exc:
+                st.error(f"Network error: {exc}")
+            except (ValueError, TypeError, KeyError) as exc:
+                st.error(f"Could not read the API response: {exc}")
+
+    if st.session_state.total_count is not None:
+        st.metric(
+            "API-reported matching listings",
+            f"{st.session_state.total_count:,}"
+        )
+        st.caption(
+            "This is a listing count, not keyword search volume or sales."
+        )
+
+    if not st.session_state.results.empty:
+        df = st.session_state.results
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "URL": st.column_config.LinkColumn("Open listing")
+            }
+        )
+
+        prices = pd.to_numeric(df["Price"], errors="coerce").dropna()
+        if not prices.empty:
+            a, b = st.columns(2)
+            a.metric("Average listed price", f"{prices.mean():.2f}")
+            b.metric("Median listed price", f"{prices.median():.2f}")
+
+        st.download_button(
+            "Download listing CSV",
+            df.to_csv(index=False).encode("utf-8"),
+            file_name="etsy_listings.csv",
+            mime="text/csv"
+        )
 
 with tab2:
-    st.subheader("Keyword Idea Generator")
-    product = st.text_input(
-        "Product or niche",
-        placeholder="e.g. artificial wedding bouquet"
+    st.subheader("Record verified keyword data")
+    st.write(
+        "Etsy Marketplace Insights se values manually enter karo. "
+        "Dashboard inhein Etsy listing search se alag rakhega."
     )
-    if st.button("Generate Keyword Ideas"):
-        if product.strip():
-            base = product.strip().lower()
-            keywords = [
-                base,
-                f"personalized {base}",
-                f"handmade {base}",
-                f"{base} gift",
-                f"{base} for wedding",
-                f"custom {base}",
-                f"{base} home decor",
-                f"unique {base}",
-                f"{base} gift idea",
-                f"premium {base}",
-                f"{base} for her",
-                f"modern {base}",
-                f"custom made {base}",
-            ]
-            st.write("Suggested keyword ideas:")
-            for i, keyword in enumerate(keywords, start=1):
-                st.write(f"{i}. {keyword}")
-            st.caption(
-                "These are AI-free keyword suggestions, not verified "
-                "search-volume or ranking data."
-            )
+
+    with st.form("keyword_form"):
+        term = st.text_input("Keyword")
+        searches = st.number_input(
+            "Etsy searches in last 30 days",
+            min_value=0,
+            step=1
+        )
+        competing = st.number_input(
+            "Etsy listings shown by Marketplace Insights",
+            min_value=0,
+            step=1
+        )
+        source = st.selectbox(
+            "Data source",
+            ["Etsy Marketplace Insights", "Google Trends", "Other"]
+        )
+        submitted = st.form_submit_button("Add keyword record")
+
+    if "keyword_records" not in st.session_state:
+        st.session_state.keyword_records = []
+
+    if submitted:
+        if term.strip():
+            st.session_state.keyword_records.append({
+                "Keyword": term.strip(),
+                "Searches (30 days)": int(searches),
+                "Listings": int(competing),
+                "Source": source
+            })
+            st.success("Keyword record added.")
         else:
-            st.warning("Pehle product ya niche enter karo.")
+            st.warning("Enter a keyword.")
+
+    if st.session_state.keyword_records:
+        kdf = pd.DataFrame(st.session_state.keyword_records)
+        st.dataframe(kdf, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Download keyword CSV",
+            kdf.to_csv(index=False).encode("utf-8"),
+            file_name="etsy_keyword_research.csv",
+            mime="text/csv",
+            key="keyword_csv"
+        )
+        st.caption(
+            "Records are held in the current app session. "
+            "Download the CSV to keep them."
+        )
+
+    st.info(
+        "Google Trends values are relative interest scores, "
+        "not actual Etsy searches. Label them accordingly."
+    )
 
 with tab3:
-    st.subheader("Competition Overview")
-    st.caption("Sample records only — actual market competition nahi.")
-    if len(filtered):
-        counts = (
-            filtered["Competition"]
-            .value_counts()
-            .reindex(["Low", "Medium", "High"], fill_value=0)
-        )
-        st.bar_chart(counts)
-        st.dataframe(filtered, use_container_width=True, hide_index=True)
-    else:
-        st.warning("Filters ke mutabiq koi product nahi mila.")
-
-with tab4:
-    st.subheader("Etsy SEO Draft Generator")
-    seo_product = st.text_input(
-        "Product name",
-        placeholder="e.g. personalized birthstone necklace",
-        key="seo_product"
+    st.subheader("Export your research")
+    st.write("Download listing and keyword CSV files from their respective tabs.")
+    st.write(
+        "The app does not estimate sales, profit, or exact search volume "
+        "unless a verified data source provides those values."
     )
-    audience = st.text_input(
-        "Target audience or occasion",
-        placeholder="e.g. birthday gift"
-    )
-    material = st.text_input(
-        "Material or key feature (optional)",
-        placeholder="e.g. sterling silver"
-    )
-
-    if st.button("Create SEO Draft"):
-        if seo_product.strip():
-            name = seo_product.strip()
-            title = f"{name.title()} - Custom Gift"
-            if material.strip():
-                title = f"{name.title()} - {material.strip().title()}"
-
-            words = [
-                name.lower(),
-                f"personalized {name.lower()}",
-                f"custom {name.lower()}",
-                f"{name.lower()} gift",
-                f"unique {name.lower()}",
-                f"{name.lower()} for her",
-                f"handmade {name.lower()}",
-                f"{name.lower()} gift idea",
-                f"modern {name.lower()}",
-                f"special {name.lower()}",
-                f"{name.lower()} for {audience.lower()}" if audience.strip()
-                else f"premium {name.lower()}",
-                f"custom made {name.lower()}",
-                f"personalized gift for {audience.lower()}" if audience.strip()
-                else f"unique personalized gift",
-            ]
-
-            tags = list(dict.fromkeys(words))[:13]
-
-            description = (
-                f"Discover this {name}. "
-                f"{'Designed with ' + material.strip() + '. ' if material.strip() else ''}"
-                f"{'A thoughtful choice for ' + audience.strip() + '. ' if audience.strip() else ''}"
-                "Please review the actual product details, materials, "
-                "dimensions, processing time and shipping information "
-                "before publishing. Update this draft to match the real item."
-            )
-
-            st.markdown("**Suggested title**")
-            st.write(title)
-            st.caption("Review Etsy's current title guidance before publishing.")
-
-            st.markdown("**13 suggested tags**")
-            st.write(", ".join(tags))
-            st.caption("Check Etsy tag length limits and relevance before publishing.")
-
-            st.markdown("**Description draft**")
-            st.write(description)
-
-            output = (
-                "TITLE\n" + title
-                + "\n\nTAGS\n" + ", ".join(tags)
-                + "\n\nDESCRIPTION\n" + description
-            )
-            st.download_button(
-                "⬇️ Download SEO Draft",
-                data=output,
-                file_name="etsy_seo_draft.txt",
-                mime="text/plain"
-            )
-        else:
-            st.warning("Pehle product name enter karo.")
 
 st.divider()
 st.caption(
-    "Etsy AI Research Dashboard MVP | Demo mode — "
-    "no live Etsy data or external AI API connected."
+    "Independent research tool. Not affiliated with or endorsed by Etsy. "
+    "Use the Etsy API in accordance with its terms and access permissions."
 )
-
