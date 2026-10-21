@@ -243,3 +243,146 @@ if st.button("Test RankHero API"):
 
     except Exception as e:
         st.error(f"Connection test failed: {e}")
+
+import pandas as pd
+
+st.divider()
+st.title("Etsy Keyword Research")
+st.caption("Powered by RankHero API")
+
+with st.form("rankhero_keyword_form"):
+    search_term = st.text_input(
+        "Product or niche",
+        value="artificial flowers",
+        max_chars=140,
+        help="Example: artificial flowers, crochet baby booties"
+    )
+
+    location = st.selectbox(
+        "Etsy marketplace",
+        [
+            "United States",
+            "Global",
+            "United Kingdom",
+            "Canada",
+            "Australia",
+            "India",
+            "European Union"
+        ]
+    )
+
+    limit = st.slider("Maximum tags", 1, 75, 30)
+
+    include_listings = st.checkbox(
+        "Include Etsy listings (no extra endpoint charge)",
+        value=True
+    )
+
+    max_listings = st.slider(
+        "Maximum listings",
+        1, 60, 20,
+        disabled=not include_listings
+    )
+
+    run_research = st.form_submit_button(
+        "Run Keyword Research"
+    )
+
+if run_research:
+    if not search_term.strip():
+        st.warning("Please enter a product or niche.")
+    else:
+        try:
+            api_key = st.secrets["RANKHERO_API_KEY"]
+
+            payload = {
+                "search_term": search_term.strip(),
+                "location": location,
+                "limit": limit,
+                "include_listings": include_listings,
+                "max_listings": max_listings
+            }
+
+            with st.spinner("Fetching RankHero research data..."):
+                response = requests.post(
+                    "https://www.rankhero.com/v1/etsy/tags",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=payload,
+                    timeout=90
+                )
+
+            if response.ok:
+                data = response.json()
+
+                st.success("Keyword research completed!")
+
+                st.write("**Search term:**", data.get("search_term"))
+                st.write("**Marketplace:**", data.get("location"))
+                st.write("**Data source:**", data.get("source", "Not provided"))
+                st.write("**Generated at (UTC):**", data.get("generated_at", "Not provided"))
+
+                usage = data.get("usage")
+                if usage:
+                    st.write("**Credits charged:**", usage.get("credits_charged"))
+                    st.write("**Credits remaining:**", usage.get("credits_remaining"))
+
+                prices = data.get("prices")
+                if prices:
+                    st.subheader("Seller Price Bands")
+                    st.json(prices)
+
+                for category in ["tags", "materials", "styles"]:
+                    rows = data.get(category) or []
+                    st.subheader(category.replace("_", " ").title())
+
+                    if rows:
+                        df = pd.DataFrame(rows)
+                        st.dataframe(df, use_container_width=True)
+
+                        st.download_button(
+                            f"Download {category} CSV",
+                            data=df.to_csv(index=False).encode("utf-8-sig"),
+                            file_name=f"etsy_{category}.csv",
+                            mime="text/csv",
+                            key=f"download_{category}"
+                        )
+                    else:
+                        st.info(f"No {category} returned for this search.")
+
+                listings = data.get("listings")
+                if listings is not None:
+                    st.subheader("Etsy Listings")
+                    if listings:
+                        listing_df = pd.DataFrame(listings)
+                        st.dataframe(listing_df, use_container_width=True)
+
+                        st.download_button(
+                            "Download listings CSV",
+                            data=listing_df.to_csv(index=False).encode("utf-8-sig"),
+                            file_name="etsy_listings.csv",
+                            mime="text/csv",
+                            key="download_listings"
+                        )
+                    else:
+                        st.info("No listings were returned for this search.")
+
+                st.caption(
+                    f"Listings available: {data.get('listings_available', 0)}"
+                )
+
+            else:
+                st.error(f"RankHero API error: HTTP {response.status_code}")
+                try:
+                    st.json(response.json())
+                except ValueError:
+                    st.code(response.text[:2000])
+
+        except KeyError:
+            st.error("RANKHERO_API_KEY missing from Streamlit Secrets.")
+        except requests.RequestException as e:
+            st.error(f"Network request failed: {e}")
+        except Exception as e:
+            st.error(f"Something went wrong: {e}")
