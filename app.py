@@ -217,3 +217,29 @@ st.caption(
     "Independent research tool. Not affiliated with or endorsed by Etsy. "
     "Use the Etsy API in accordance with its terms and access permissions."
 )
+
+import streamlit as st
+import requests
+
+st.subheader("RankHero API Connection Test")
+
+if st.button("Test RankHero API"):
+    try:
+        api_key = st.secrets["RANKHERO_API_KEY"]
+
+        response = requests.get(
+            "https://www.rankhero.com/v1/me",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=30,
+        )
+
+        if response.ok:
+            data = response.json()
+            st.success("RankHero API connected successfully!")
+            st.json(data)
+        else:
+            st.error(f"API error: HTTP {response.status_code}")
+            st.json(response.json())
+
+    except Exception as e:
+        st.error(f"Connection test failed: {e}")
