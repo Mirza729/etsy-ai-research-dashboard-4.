@@ -596,9 +596,257 @@ def _rh_table(data, key, title=None):
         st.info(f"No {title or key.replace('_', ' ')} returned.")
 
 
-rh_tab_listing, rh_tab_shop, rh_tab_rank, rh_tab_keywords = st.tabs([
-    "🧾 Listing Analyzer", "🏪 Shop Analyzer", "📍 Rank Check", "🌐 Keyword Ideas"
+
+
+# ---------------- Listing Creator (URL-based draft) ----------------
+def _safe_fetch_product_page(url):
+    """Fetch basic public product metadata from a user-supplied HTTP(S) URL."""
+    from urllib.parse import urlparse
+    import ipaddress
+    from html.parser import HTMLParser
+
+    class MetaParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.meta = {}
+            self.title_parts = []
+            self.in_title = False
+            self.images = []
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag.lower() == "title":
+                self.in_title = True
+            if tag.lower() == "meta":
+                key = (attrs.get("property") or attrs.get("name") or "").lower()
+                value = attrs.get("content", "").strip()
+                if key and value:
+                    self.meta[key] = value
+            if tag.lower() == "img":
+                src = attrs.get("src") or attrs.get("data-src")
+                if src and src.startswith(("http://", "https://")):
+                    self.images.append(src)
+        def handle_endtag(self, tag):
+            if tag.lower() == "title":
+                self.in_title = False
+        def handle_data(self, data):
+            if self.in_title and data.strip():
+                self.title_parts.append(data.strip())
+
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Please enter a complete public http:// or https:// product URL.")
+    host = parsed.hostname.lower()
+    if host in ("localhost",) or host.endswith(".localhost") or host.endswith(".local"):
+        raise ValueError("Local/private URLs are not allowed.")
+    try:
+        ip = ipaddress.ip_address(host)
+        if not ip.is_global:
+            raise ValueError("Private or local IP addresses are not allowed.")
+    except ValueError as exc:
+        if "not allowed" in str(exc):
+            raise
+        # Host is a domain name rather than an IP address.
+        pass
+
+    response = requests.get(
+        url.strip(),
+        headers={"User-Agent": "Mozilla/5.0 (compatible; EtsyResearchDashboard/1.0)"},
+        timeout=20,
+        allow_redirects=True,
+    )
+    response.raise_for_status()
+    if len(response.content) > 4_000_000:
+        raise ValueError("The page is too large to process (4 MB limit).")
+    parser = MetaParser()
+    parser.feed(response.text[:4_000_000])
+    final_host = urlparse(response.url).hostname or ""
+    if final_host.lower() in ("localhost",) or final_host.lower().endswith((".local", ".localhost")):
+        raise ValueError("The URL redirected to a local address.")
+    title = (
+        parser.meta.get("og:title")
+        or parser.meta.get("twitter:title")
+        or (parser.title_parts[0] if parser.title_parts else "")
+    )
+    description = (
+        parser.meta.get("og:description")
+        or parser.meta.get("description")
+        or parser.meta.get("twitter:description")
+        or ""
+    )
+    main_image = parser.meta.get("og:image") or parser.meta.get("twitter:image")
+    image_urls = []
+    if main_image and main_image.startswith(("http://", "https://")):
+        image_urls.append(main_image)
+    for image_url in parser.images:
+        if image_url not in image_urls:
+            image_urls.append(image_url)
+    return {
+        "title": title[:500],
+        "description": description[:3000],
+        "image_urls": image_urls[:12],
+        "final_url": response.url,
+    }
+
+
+def _listing_tags_from_text(title, category, notes, count=13):
+    """Simple transparent starter tag builder; does not claim search-volume data."""
+    import re
+    stop = {"with", "from", "that", "this", "your", "for", "and", "the", "of", "to", "in", "on", "a", "an", "by", "is", "are"}
+    phrases = []
+    base = f"{title} {category} {notes}".lower()
+    words = re.findall(r"[a-z0-9]+", base)
+    for n in (3, 2, 1):
+        for i in range(max(0, len(words) - n + 1)):
+            phrase_words = words[i:i+n]
+            phrase = " ".join(phrase_words).strip()
+            if not phrase or all(w in stop for w in phrase_words):
+                continue
+            if len(phrase) <= 20 and phrase not in phrases and any(w not in stop for w in phrase_words):
+                phrases.append(phrase)
+    # Add relevant category/occasion modifiers, but mark them as suggestions for seller review.
+    for extra in [category.lower(), "gift idea", "home decor", "unique gift", "personalized gift"]:
+        if extra and len(extra) <= 20 and extra not in phrases:
+            phrases.append(extra)
+    return phrases[:count]
+
+
+rh_tab_creator, rh_tab_listing, rh_tab_shop, rh_tab_rank, rh_tab_keywords = st.tabs([
+    "🪄 Listing Creator", "🧾 Listing Analyzer", "🏪 Shop Analyzer", "📍 Rank Check", "🌐 Keyword Ideas"
 ])
+
+with rh_tab_creator:
+    st.write("Paste a public product-page URL to build an editable Etsy listing draft. Some sites block automated fetching; if that happens, paste the product title and details manually.")
+    st.info("Free-first version: it fetches public page metadata and creates a draft plus six separate image prompts. It does not publish to Etsy or generate image files by itself. Actual AI image generation needs an image-generation service/API.")
+    with st.form("rh_listing_creator_form"):
+        creator_url = st.text_input("Product URL (any public website)", placeholder="https://example.com/product-page")
+        creator_category = st.selectbox(
+            "Etsy category / product niche",
+            ["Artificial flowers & plants", "Jewellery", "Crochet & knitting", "Clothing & accessories",
+             "Home decor", "Wedding", "Personalized gifts", "Garden decor", "Other"]
+        )
+        creator_notes = st.text_area(
+            "Extra product facts (optional but recommended)",
+            placeholder="Materials, dimensions, colors, what's included, customization, who it's for, shipping/production facts..."
+        )
+        creator_market = st.selectbox("Target market", ["United States", "Global", "United Kingdom", "Canada", "Australia"])
+        creator_use_rankhero = st.checkbox("Also fetch RankHero Etsy tag research (uses 1 API credit)", value=False)
+        run_creator = st.form_submit_button("Fetch product & create listing draft")
+
+    if run_creator:
+        if not creator_url.strip():
+            st.warning("Please enter a product URL.")
+        else:
+            try:
+                product_data = _safe_fetch_product_page(creator_url.strip())
+                st.session_state["listing_creator_product"] = product_data
+                st.session_state["listing_creator_notes"] = creator_notes.strip()
+                st.session_state["listing_creator_category"] = creator_category
+                st.session_state["listing_creator_market"] = creator_market
+                st.session_state["listing_creator_use_rankhero"] = creator_use_rankhero
+            except Exception as exc:
+                st.error(f"Could not fetch that page: {exc}")
+                st.info("Some websites block automated requests. Copy the product title, details, and image URLs into the fields below and try again with a publicly accessible page.")
+
+    if st.session_state.get("listing_creator_product"):
+        product_data = st.session_state["listing_creator_product"]
+        st.subheader("Fetched product information")
+        st.write("**Source page:**", product_data.get("final_url", ""))
+        fetched_title = product_data.get("title") or "Product title not found"
+        st.write("**Fetched title:**", fetched_title)
+        if product_data.get("description"):
+            with st.expander("Fetched source description"):
+                st.write(product_data["description"])
+        image_urls = product_data.get("image_urls", [])
+        st.caption(f"Found {len(image_urls)} possible product image URL(s). Some may not be product photos.")
+        if image_urls:
+            cols = st.columns(min(3, len(image_urls)))
+            for i, image_url in enumerate(image_urls[:6]):
+                with cols[i % len(cols)]:
+                    st.image(image_url, caption=f"Source image {i+1}", use_container_width=True)
+
+        notes_value = st.session_state.get("listing_creator_notes", "")
+        category_value = st.session_state.get("listing_creator_category", "Other")
+        market_value = st.session_state.get("listing_creator_market", "United States")
+        st.subheader("Edit your Etsy listing draft")
+        draft_title = st.text_input("SEO title (editable)", value=(fetched_title if fetched_title != "Product title not found" else ""), max_chars=140, key="creator_edit_title")
+        draft_tags = _listing_tags_from_text(draft_title, category_value, notes_value)
+        draft_tags = [tag[:20] for tag in draft_tags if tag.strip()]
+        draft_description = st.text_area(
+            "Product description (editable)",
+            value=(
+                f"{draft_title}\n\n"
+                f"PRODUCT DETAILS\n{notes_value or 'Add verified materials, dimensions, colors, included items, and customization details here.'}\n\n"
+                f"WHY YOU MAY LOVE IT\nDescribe the product's real features, intended use, and gifting occasions without making unverified claims.\n\n"
+                f"IMPORTANT DETAILS\n- Materials: add confirmed materials\n- Size/dimensions: add exact measurements\n- What's included: list every included item\n- Processing/shipping: add accurate shop-specific details\n\n"
+                f"Please review all details before publishing. This draft was prepared for the {market_value} market."
+            ),
+            height=280,
+            key="creator_edit_description"
+        )
+        st.write("**Suggested tags** (starter suggestions only; check relevance and Etsy's 20-character limit):")
+        st.write(", ".join(draft_tags))
+        st.caption("These draft tags are generated from page text and your notes, not from measured Etsy search volume. For real keyword/competition metrics, use the Keyword Research tab or optionally run RankHero below.")
+        tag_text = st.text_area("Edit tags (one per line; max 20 characters each)", value="\n".join(draft_tags), key="creator_edit_tags")
+        valid_tags = list(dict.fromkeys([x.strip() for x in tag_text.splitlines() if x.strip()]))
+        invalid_tags = [tag for tag in valid_tags if len(tag) > 20]
+        if invalid_tags:
+            st.warning("These tags exceed 20 characters: " + ", ".join(invalid_tags))
+        st.caption(f"{len(valid_tags)} non-empty tags entered. Etsy currently allows up to 13 tags per listing; use no more than 13 relevant tags.")
+
+        st.subheader("Six separate image concepts")
+        image_prompts = [
+            f"Main Etsy product photo of {draft_title}, centered, clear details, clean uncluttered background, natural realistic lighting, square composition. Preserve the actual product design and do not add features not shown.",
+            f"Second product angle of {draft_title}, showing a different realistic viewing angle, accurate proportions, neutral background, professional ecommerce photography.",
+            f"Close-up detail photo of {draft_title}, highlighting real texture, stitching, finish, or craftsmanship visible on the actual product; do not invent materials.",
+            f"Lifestyle scene featuring {draft_title} in a relevant everyday setting for {category_value}, realistic scale, product clearly visible, natural light.",
+            f"Size and scale presentation for {draft_title}, with clean layout and space to add verified dimensions later; do not invent measurements or text.",
+            f"Gift-ready or alternate-use scene for {draft_title}, tasteful styling, product remains the main focus, realistic details and no misleading accessories."
+        ]
+        prompt_cols = st.columns(2)
+        for idx, prompt in enumerate(image_prompts):
+            with prompt_cols[idx % 2]:
+                st.markdown(f"**Image {idx+1}**")
+                st.text_area(f"Prompt {idx+1}", value=prompt, height=105, key=f"creator_img_prompt_{idx}")
+        st.caption("Etsy listing-photo guidance changes over time; use clear, accurate product photos and check the current Etsy Seller Handbook before publishing. Do not use supplier/competitor images unless you have permission and they accurately represent what you sell.")
+
+        listing_export = {
+            "source_url": product_data.get("final_url", ""),
+            "target_market": market_value,
+            "category": category_value,
+            "title": draft_title,
+            "tags": valid_tags[:13],
+            "description": draft_description,
+            "source_image_urls": image_urls[:6],
+            "image_prompts": image_prompts,
+            "notes": notes_value,
+        }
+        st.download_button(
+            "Download listing draft (JSON)",
+            data=__import__("json").dumps(listing_export, ensure_ascii=False, indent=2),
+            file_name="etsy_listing_draft.json",
+            mime="application/json",
+            key="creator_download_json",
+        )
+        st.download_button(
+            "Download listing text (TXT)",
+            data=f"TITLE\n{draft_title}\n\nTAGS\n{', '.join(valid_tags[:13])}\n\nDESCRIPTION\n{draft_description}\n\nSIX IMAGE PROMPTS\n" + "\n\n".join(f"{i+1}. {p}" for i, p in enumerate(image_prompts)),
+            file_name="etsy_listing_draft.txt",
+            mime="text/plain",
+            key="creator_download_txt",
+        )
+        if st.session_state.get("listing_creator_use_rankhero"):
+            if st.button("Run RankHero Etsy tag research (1 credit)", key="creator_rankhero_tags"):
+                rank_result = _rh_post("etsy/tags", {
+                    "search_term": draft_title[:140],
+                    "location": market_value,
+                    "limit": 75,
+                    "include_listings": False,
+                })
+                if rank_result:
+                    st.success("RankHero tag research completed.")
+                    _rh_show_usage(rank_result)
+                    _rh_table(rank_result, "tags", "RankHero Etsy tag research")
+
 
 with rh_tab_listing:
     st.write("Analyze a public Etsy listing URL or numeric listing ID. This call costs API credits.")
