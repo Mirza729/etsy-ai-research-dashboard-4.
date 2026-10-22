@@ -250,12 +250,38 @@ st.divider()
 st.title("Etsy Keyword Research")
 st.caption("Powered by RankHero API")
 
+# Broad starter groups are shortcuts; the seed keyword remains editable so
+# users can research any niche supported by RankHero's Etsy tags endpoint.
+niche_groups = {
+    "Artificial flowers & plants": "artificial flowers",
+    "Jewellery": "personalized necklace",
+    "Crochet & knitting": "crochet baby booties",
+    "Clothing & accessories": "crochet sweater",
+    "Home decor": "wall decor",
+    "Wedding": "wedding bouquet",
+    "Personalized gifts": "personalized gift",
+    "Pet products": "dog bandana",
+    "Digital products": "printable planner",
+    "Craft supplies": "embroidery supplies",
+    "Baby & kids": "baby shower gift",
+    "Seasonal & holiday": "Christmas decor",
+    "Garden & outdoor": "garden decor",
+    "Vintage": "vintage home decor",
+    "Custom niche": ""
+}
+
 with st.form("rankhero_keyword_form"):
+    niche_group = st.selectbox(
+        "Choose a niche group",
+        list(niche_groups.keys()),
+        help="These are starter shortcuts, not a complete RankHero niche database."
+    )
     search_term = st.text_input(
-        "Product or niche",
-        value="artificial flowers",
+        "Exact product or seed keyword",
+        value=niche_groups[niche_group],
         max_chars=140,
-        help="Example: artificial flowers, crochet baby booties"
+        key=f"rankhero_seed_{niche_group}",
+        help="You can edit this or enter any niche, for example: artificial flowers, crochet baby booties, birthstone ring."
     )
 
     location = st.selectbox(
@@ -340,7 +366,18 @@ if run_research:
 
                     if rows:
                         df = pd.DataFrame(rows)
-                        st.dataframe(df, use_container_width=True)
+
+                        # Put stronger search-demand tags first when the API
+                        # returns a numeric monthly-search estimate.
+                        if category == "tags" and "avg_monthly_searches" in df.columns:
+                            df["avg_monthly_searches"] = pd.to_numeric(
+                                df["avg_monthly_searches"], errors="coerce"
+                            )
+                            df = df.sort_values(
+                                "avg_monthly_searches", ascending=False, na_position="last"
+                            )
+
+                        st.dataframe(df, use_container_width=True, hide_index=True)
 
                         st.download_button(
                             f"Download {category} CSV",
