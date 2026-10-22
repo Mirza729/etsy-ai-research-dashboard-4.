@@ -517,3 +517,244 @@ if run_research:
             st.error(f"Network request failed: {e}")
         except Exception as e:
             st.error(f"Something went wrong: {e}")
+
+# ---------------- RankHero additional tools ----------------
+st.divider()
+st.title("🧰 More RankHero Tools")
+st.caption("Optional tools use API credits. Run only the tool you need.")
+
+try:
+    _rh_key = st.secrets.get("RANKHERO_API_KEY", "")
+except Exception:
+    _rh_key = ""
+
+RH_BASE = "https://www.rankhero.com/v1"
+
+def _rh_post(endpoint, payload):
+    """Call a documented RankHero endpoint and show useful API errors."""
+    if not _rh_key:
+        st.error("RANKHERO_API_KEY missing from Streamlit Secrets.")
+        return None
+    try:
+        with st.spinner("RankHero is processing your request..."):
+            r = requests.post(
+                f"{RH_BASE}/{endpoint}",
+                headers={
+                    "Authorization": f"Bearer {_rh_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=90,
+            )
+        try:
+            body = r.json()
+        except ValueError:
+            body = {"message": r.text[:2000]}
+        if not r.ok:
+            error = body.get("error", body) if isinstance(body, dict) else body
+            message = error.get("message", str(error)) if isinstance(error, dict) else str(error)
+            st.error(f"RankHero API error (HTTP {r.status_code}): {message}")
+            if r.status_code == 402:
+                st.warning("API credits may be insufficient. Check your RankHero Credits page before retrying.")
+            elif r.status_code == 422:
+                st.caption("One or more fields may be invalid. Review the input values below.")
+            with st.expander("Technical response"):
+                st.json(body)
+            return None
+        return body
+    except requests.RequestException as exc:
+        st.error(f"Network request failed: {exc}")
+        return None
+
+
+def _rh_show_usage(data):
+    usage = data.get("usage") if isinstance(data, dict) else None
+    if isinstance(usage, dict):
+        cols = st.columns(3)
+        if usage.get("credits_charged") is not None:
+            cols[0].metric("Credits charged", usage.get("credits_charged"))
+        if usage.get("credits_remaining") is not None:
+            cols[1].metric("Credits remaining", usage.get("credits_remaining"))
+        if usage.get("funded_by"):
+            cols[2].metric("Paid by", str(usage.get("funded_by")))
+
+
+def _rh_table(data, key, title=None):
+    rows = data.get(key) if isinstance(data, dict) else None
+    if isinstance(rows, list) and rows:
+        st.subheader(title or key.replace("_", " ").title())
+        df = pd.json_normalize(rows, sep=".")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.download_button(
+            f"Download {key.replace('_', ' ')} CSV",
+            df.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"rankhero_{key}.csv",
+            mime="text/csv",
+            key=f"rh_extra_{key}_{len(df)}",
+        )
+    elif rows == []:
+        st.info(f"No {title or key.replace('_', ' ')} returned.")
+
+
+rh_tab_listing, rh_tab_shop, rh_tab_rank, rh_tab_keywords = st.tabs([
+    "🧾 Listing Analyzer", "🏪 Shop Analyzer", "📍 Rank Check", "🌐 Keyword Ideas"
+])
+
+with rh_tab_listing:
+    st.write("Analyze a public Etsy listing URL or numeric listing ID. This call costs API credits.")
+    with st.form("rh_listing_analysis_form"):
+        listing_input = st.text_input("Etsy listing URL or listing ID", placeholder="https://www.etsy.com/listing/1234567890/... ")
+        listing_tag_metrics = st.checkbox("Include tag search/competition metrics", value=True)
+        listing_images = st.checkbox("Include image checks", value=False)
+        listing_description = st.checkbox("Include full description text", value=False)
+        run_listing_analysis = st.form_submit_button("Analyze listing")
+    if run_listing_analysis:
+        if not listing_input.strip():
+            st.warning("Enter a listing URL or numeric ID first.")
+        else:
+            result = _rh_post("etsy/listing-analysis", {
+                "listing": listing_input.strip(),
+                "include_tag_metrics": listing_tag_metrics,
+                "include_images": listing_images,
+                "include_description": listing_description,
+            })
+            if result:
+                st.success("Listing analysis completed.")
+                _rh_show_usage(result)
+                summary = result.get("listing", {})
+                score = result.get("score", {})
+                stats = result.get("stats", {})
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Listing score", score.get("value", "N/A"))
+                c2.metric("Grade", score.get("grade", "N/A"))
+                c3.metric("Views", stats.get("views", "N/A"))
+                c4.metric("Favorites", stats.get("favorites", "N/A"))
+                st.write("**Title:**", summary.get("title", "Not provided"))
+                if summary.get("url"):
+                    st.markdown(f"[Open Etsy listing]({summary['url']})")
+                sections = result.get("sections", {})
+                for section_name, section in sections.items():
+                    with st.expander(section_name.replace("_", " ").title()):
+                        st.json(section)
+                _rh_table(result, "tag_metrics", "Tag Search & Competition Metrics")
+                st.subheader("Listing tags")
+                st.write(", ".join(result.get("tags", [])) or "No tags returned")
+                if listing_images and result.get("images") is not None:
+                    _rh_table(result, "images", "Image Checks")
+                if listing_description and result.get("description"):
+                    with st.expander("Full listing description"):
+                        st.write(result["description"])
+
+with rh_tab_shop:
+    st.write("Analyze any public Etsy shop, including competitors. Sales and revenue figures are estimates, not exact shop accounts.")
+    with st.form("rh_shop_analysis_form"):
+        shop_input = st.text_input("Etsy shop name", placeholder="ShopName (not a full Etsy URL)")
+        shop_max_listings = st.selectbox("Listings to analyze", [25, 50, 100, 200], index=2)
+        shop_tag_metrics = st.checkbox("Include tag search/competition metrics", value=True)
+        shop_include_listings = st.checkbox("Include all analyzed listings in results", value=False)
+        shop_include_about = st.checkbox("Include shop announcement and policies", value=False)
+        run_shop_analysis = st.form_submit_button("Analyze shop")
+    if run_shop_analysis:
+        if not shop_input.strip():
+            st.warning("Enter an Etsy shop name first.")
+        else:
+            result = _rh_post("etsy/shop-analysis", {
+                "shop_name": shop_input.strip(),
+                "max_listings": shop_max_listings,
+                "include_tag_metrics": shop_tag_metrics,
+                "include_listings": shop_include_listings,
+                "include_about": shop_include_about,
+            })
+            if result:
+                st.success("Shop analysis completed.")
+                _rh_show_usage(result)
+                shop = result.get("shop", {})
+                perf = result.get("performance", {})
+                grade = result.get("grade", {})
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Active listings", shop.get("active_listings", "N/A"))
+                c2.metric("Lifetime sales (Etsy count)", shop.get("sales", "N/A"))
+                c3.metric("Estimated monthly sales", perf.get("monthly_sales_estimate", "N/A"))
+                c4.metric("Average listing grade", grade.get("average_grade", "N/A"))
+                st.write("**Shop:**", shop.get("name", shop_input.strip()))
+                if shop.get("url"):
+                    st.markdown(f"[Open Etsy shop]({shop['url']})")
+                st.write("**Shop performance:**")
+                st.json(perf)
+                if result.get("rank"):
+                    st.write("**RankHero shop index:**")
+                    st.json(result["rank"])
+                _rh_table(result, "top_tags", "Most-used Tags")
+                _rh_table(result, "categories", "Shop Categories")
+                _rh_table(result, "top_listings", "Top Listings")
+                if shop_include_listings:
+                    _rh_table(result, "listings", "All Analyzed Listings")
+                if shop_include_about and result.get("about"):
+                    with st.expander("Shop announcement and policies"):
+                        st.json(result["about"])
+
+with rh_tab_rank:
+    st.write("Check whether a shop or listing appears in Etsy's top 100 results for up to five phrases. Each distinct keyword costs 1 API credit.")
+    with st.form("rh_rank_check_form"):
+        rank_target_type = st.radio("What do you want to check?", ["Shop name", "Listing ID"], horizontal=True)
+        rank_target = st.text_input("Etsy shop name" if rank_target_type == "Shop name" else "Numeric Etsy listing ID")
+        rank_keywords_text = st.text_area("Keywords (one per line, maximum 5)", placeholder="artificial wedding bouquet\nsilk flowers\noutdoor artificial flowers")
+        rank_location = st.selectbox("Rank marketplace", ["United States", "Global", "United Kingdom", "Canada", "Australia", "India", "European Union"], key="rh_rank_location")
+        run_rank_check = st.form_submit_button("Check Etsy rank")
+    if run_rank_check:
+        rank_keywords = list(dict.fromkeys([x.strip() for x in rank_keywords_text.splitlines() if x.strip()]))
+        if not rank_target.strip():
+            st.warning("Enter the shop name or listing ID.")
+        elif not rank_keywords:
+            st.warning("Enter at least one keyword.")
+        elif len(rank_keywords) > 5:
+            st.warning("Use no more than five unique keywords per request to control credit use.")
+        elif rank_target_type == "Listing ID" and not rank_target.strip().isdigit():
+            st.warning("Listing ID must contain digits only.")
+        else:
+            payload = {"keywords": rank_keywords, "location": rank_location}
+            if rank_target_type == "Shop name":
+                payload["shop_name"] = rank_target.strip()
+            else:
+                payload["listing_id"] = int(rank_target.strip())
+            result = _rh_post("etsy/rank", payload)
+            if result:
+                st.success("Rank check completed.")
+                _rh_show_usage(result)
+                st.write("**Target:**", result.get("target", {}))
+                st.write("**Marketplace:**", result.get("location", rank_location))
+                _rh_table(result, "results", "Keyword Rank Results")
+
+with rh_tab_keywords:
+    st.write("Find related web-search keyword ideas. Important: this endpoint is general web SEO data, not Etsy-specific search volume.")
+    with st.form("rh_web_keywords_form"):
+        seed_terms_text = st.text_area("Seed terms (one per line, maximum 20)", placeholder="artificial flowers\nsilk wedding bouquet")
+        keyword_location = st.selectbox("Search-volume country", ["United States", "Global", "United Kingdom", "Canada", "Australia", "India", "New Zealand", "South Africa", "Poland", "Germany", "France", "Italy", "Spain", "Turkey"], key="rh_keyword_location")
+        keyword_limit = st.slider("Maximum keyword ideas", 10, 100, 30)
+        include_keyword_ideas = st.checkbox("Find related keyword ideas", value=True)
+        include_keyword_trend = st.checkbox("Include 12-month search trend", value=False)
+        run_web_keywords = st.form_submit_button("Find keyword ideas")
+    if run_web_keywords:
+        seed_terms = list(dict.fromkeys([x.strip() for x in seed_terms_text.splitlines() if x.strip()]))
+        if not seed_terms:
+            st.warning("Enter at least one seed term.")
+        elif len(seed_terms) > 20:
+            st.warning("Use no more than 20 seed terms.")
+        elif any(len(x) > 79 or "," in x for x in seed_terms):
+            st.warning("Each seed term must be 1–79 characters and must not contain a comma.")
+        else:
+            result = _rh_post("keywords", {
+                "search_terms": seed_terms,
+                "location": keyword_location,
+                "limit": keyword_limit,
+                "include_ideas": include_keyword_ideas,
+                "include_trend": include_keyword_trend,
+            })
+            if result:
+                st.success("Keyword ideas loaded.")
+                _rh_show_usage(result)
+                st.write("**Data source:**", result.get("source", "Not provided"))
+                st.write("**Total ideas found:**", result.get("total_ideas", 0))
+                _rh_table(result, "keywords", "Keyword Ideas")
+                if include_keyword_trend:
+                    st.caption("Trend values, when returned, are general web search estimates—not Etsy search volume.")
