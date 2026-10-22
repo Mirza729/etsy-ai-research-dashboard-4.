@@ -250,40 +250,136 @@ st.divider()
 st.title("Etsy Keyword Research")
 st.caption("Powered by RankHero API")
 
-# Broad starter groups are shortcuts; the seed keyword remains editable so
-# users can research any niche supported by RankHero's Etsy tags endpoint.
+# Starter niche and sub-niche suggestions. These are dashboard shortcuts,
+# not a claim that RankHero has an official complete niche directory.
 niche_groups = {
-    "Artificial flowers & plants": "artificial flowers",
-    "Jewellery": "personalized necklace",
-    "Crochet & knitting": "crochet baby booties",
-    "Clothing & accessories": "crochet sweater",
-    "Home decor": "wall decor",
-    "Wedding": "wedding bouquet",
-    "Personalized gifts": "personalized gift",
-    "Pet products": "dog bandana",
-    "Digital products": "printable planner",
-    "Craft supplies": "embroidery supplies",
-    "Baby & kids": "baby shower gift",
-    "Seasonal & holiday": "Christmas decor",
-    "Garden & outdoor": "garden decor",
-    "Vintage": "vintage home decor",
-    "Custom niche": ""
+    "Artificial flowers & plants": {
+        "Silk flowers": "silk flowers",
+        "Artificial wedding bouquets": "artificial wedding bouquet",
+        "Artificial trees": "artificial tree",
+        "Outdoor UV-resistant flowers": "UV resistant artificial flowers",
+        "Hanging flower baskets": "artificial hanging flower basket",
+        "Artificial greenery": "artificial greenery",
+        "Custom sub-niche": ""
+    },
+    "Jewellery": {
+        "Personalized necklaces": "personalized necklace",
+        "Gold necklaces": "gold necklace",
+        "Birthstone rings": "birthstone ring",
+        "Earrings": "handmade earrings",
+        "Jewellery sets": "jewelry set",
+        "Custom sub-niche": ""
+    },
+    "Crochet & knitting": {
+        "Baby booties": "crochet baby booties",
+        "Crochet bags": "crochet bag",
+        "Christmas sweaters": "crochet Christmas sweater",
+        "Crochet blankets": "crochet blanket",
+        "Amigurumi toys": "crochet amigurumi toy",
+        "Custom sub-niche": ""
+    },
+    "Clothing & accessories": {
+        "Crochet sweaters": "crochet sweater",
+        "Graphic tees": "graphic tee",
+        "Scarves": "handmade scarf",
+        "Tote bags": "canvas tote bag",
+        "Fashion accessories": "fashion accessories",
+        "Custom sub-niche": ""
+    },
+    "Home decor": {
+        "Wall decor": "wall decor",
+        "Candle holders": "candle holder",
+        "Decorative pillows": "decorative pillow",
+        "Vases": "decorative vase",
+        "Artificial flower arrangements": "artificial flower arrangement",
+        "Custom sub-niche": ""
+    },
+    "Wedding": {
+        "Bridal bouquets": "bridal bouquet",
+        "Bridesmaid gifts": "bridesmaid gift",
+        "Wedding centerpieces": "wedding centerpiece",
+        "Wedding favors": "wedding favor",
+        "Personalized wedding signs": "personalized wedding sign",
+        "Custom sub-niche": ""
+    },
+    "Personalized gifts": {
+        "Custom name gifts": "custom name gift",
+        "Personalized mugs": "personalized mug",
+        "Engraved gifts": "engraved gift",
+        "Personalized ornaments": "personalized Christmas ornament",
+        "Custom sub-niche": ""
+    },
+    "Pet products": {
+        "Dog bandanas": "dog bandana",
+        "Pet collars": "personalized dog collar",
+        "Pet beds": "dog bed",
+        "Pet tags": "personalized pet tag",
+        "Custom sub-niche": ""
+    },
+    "Digital products": {
+        "Printable planners": "printable planner",
+        "Digital wall art": "digital wall art",
+        "Wedding templates": "wedding template",
+        "Budget spreadsheets": "budget spreadsheet",
+        "Custom sub-niche": ""
+    },
+    "Craft supplies": {
+        "Embroidery supplies": "embroidery supplies",
+        "Yarn": "crochet yarn",
+        "Beads": "jewelry making beads",
+        "Sewing patterns": "sewing pattern",
+        "Custom sub-niche": ""
+    },
+    "Baby & kids": {
+        "Baby shower gifts": "baby shower gift",
+        "Baby clothes": "handmade baby clothes",
+        "Nursery decor": "nursery decor",
+        "Kids accessories": "kids hair accessories",
+        "Custom sub-niche": ""
+    },
+    "Seasonal & holiday": {
+        "Christmas decor": "Christmas decor",
+        "Halloween decor": "Halloween decor",
+        "Easter gifts": "Easter gift",
+        "Fall decorations": "fall decorations",
+        "Custom sub-niche": ""
+    },
+    "Garden & outdoor": {
+        "Garden decor": "garden decor",
+        "Planters": "garden planter",
+        "Outdoor artificial plants": "outdoor artificial plants",
+        "Garden signs": "garden sign",
+        "Custom sub-niche": ""
+    },
+    "Vintage": {
+        "Vintage home decor": "vintage home decor",
+        "Vintage jewellery": "vintage jewelry",
+        "Vintage clothing": "vintage clothing",
+        "Vintage collectibles": "vintage collectible",
+        "Custom sub-niche": ""
+    },
+    "Custom niche": {
+        "Enter your own keyword": ""
+    }
 }
 
-with st.form("rankhero_keyword_form"):
-    niche_group = st.selectbox(
-        "Choose a niche group",
-        list(niche_groups.keys()),
-        help="These are starter shortcuts, not a complete RankHero niche database."
-    )
-    search_term = st.text_input(
-        "Exact product or seed keyword",
-        value=niche_groups[niche_group],
-        max_chars=140,
-        key=f"rankhero_seed_{niche_group}",
-        help="You can edit this or enter any niche, for example: artificial flowers, crochet baby booties, birthstone ring."
-    )
+st.subheader("Choose a niche and sub-niche")
+niche_group = st.selectbox(
+    "Niche group",
+    list(niche_groups.keys()),
+    help="These are editable starter suggestions, not a complete official RankHero niche list."
+)
+sub_niche = st.selectbox("Sub-niche", list(niche_groups[niche_group].keys()))
+seed_keyword = niche_groups[niche_group][sub_niche]
+search_term = st.text_input(
+    "Exact product or seed keyword",
+    value=seed_keyword,
+    max_chars=140,
+    key=f"rankhero_seed_{niche_group}_{sub_niche}",
+    help="Edit this suggested keyword or enter your own product phrase."
+)
 
+with st.form("rankhero_keyword_form"):
     location = st.selectbox(
         "Etsy marketplace",
         [
@@ -310,9 +406,7 @@ with st.form("rankhero_keyword_form"):
         disabled=not include_listings
     )
 
-    run_research = st.form_submit_button(
-        "Run Keyword Research"
-    )
+    run_research = st.form_submit_button("Run Keyword Research")
 
 if run_research:
     if not search_term.strip():
