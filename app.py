@@ -246,6 +246,111 @@ if st.button("Test RankHero API"):
 
 import pandas as pd
 
+# ---------------- Free Product Research (no paid API credits) ----------------
+st.divider()
+st.title("🆓 Free Product Research")
+st.caption("Free workflow — no RankHero credits used. Verify demand and competition on the linked sources; this tool does not claim live trend/search-volume data.")
+
+with st.expander("Open Free Product Research menu", expanded=True):
+    free_col1, free_col2 = st.columns([2, 1])
+    with free_col1:
+        free_niche = st.selectbox(
+            "Choose a niche",
+            ["Artificial flowers & plants", "Jewellery", "Crochet & knitting", "Garden decor", "Home decor", "Personalized gifts", "Pet accessories", "Wedding products", "Other / custom"],
+            key="free_research_niche"
+        )
+        free_seed = st.text_input(
+            "Product or seed keyword",
+            value="artificial flowers",
+            help="Enter the item you want to research. This creates search links and keyword variations; it does not fetch private or paid trend data.",
+            key="free_research_seed"
+        )
+    with free_col2:
+        free_market = st.selectbox("Target market", ["United States", "Global", "United Kingdom", "Canada", "Australia"], key="free_research_market")
+        free_count = st.slider("Keyword variations", 5, 25, 12, key="free_research_count")
+
+    if st.button("Build free research checklist", type="primary", key="free_research_build"):
+        seed = free_seed.strip()
+        if not seed:
+            st.warning("Pehle product ya keyword likho.")
+        else:
+            import urllib.parse
+            modifiers = [
+                "best seller", "trending", "personalized", "custom", "handmade",
+                "gift", "wedding", "minimalist", "modern", "rustic", "small", "large",
+                "premium", "budget", "for women", "for home", "seasonal", "outdoor",
+                "unique", "made to order", "set of", "custom color", "gift for her",
+                "gift for mom", "Christmas"
+            ]
+            variations = [seed] + [f"{m} {seed}" for m in modifiers if m.lower() not in seed.lower()]
+            variations = variations[:free_count]
+            st.session_state["free_research_terms"] = variations
+            st.session_state["free_research_seed"] = seed
+            st.session_state["free_research_market_saved"] = free_market
+
+    free_terms = st.session_state.get("free_research_terms", [])
+    if free_terms:
+        import urllib.parse
+        market_code = {"United States": "US", "Global": "", "United Kingdom": "GB", "Canada": "CA", "Australia": "AU"}.get(st.session_state.get("free_research_market_saved", free_market), "US")
+        st.subheader("Keyword ideas and free research links")
+        st.caption("Open the links and record what you actually observe. Search-result counts are not search volume, and a trend signal is not proof of sales.")
+        rows = []
+        for term in free_terms:
+            q = urllib.parse.quote_plus(term)
+            etsy_url = f"https://www.etsy.com/search?q={q}"
+            trends_url = f"https://trends.google.com/trends/explore?geo={market_code}&q={q}"
+            google_url = f"https://www.google.com/search?q={q}"
+            rows.append({"Keyword idea": term, "Etsy search": etsy_url, "Google Trends": trends_url, "Google search": google_url})
+        free_df = pd.DataFrame(rows)
+        st.dataframe(
+            free_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Etsy search": st.column_config.LinkColumn("Open Etsy", display_text="Search Etsy"),
+                "Google Trends": st.column_config.LinkColumn("Open Trends", display_text="Check Trends"),
+                "Google search": st.column_config.LinkColumn("Open Google", display_text="Search Google"),
+            },
+        )
+        st.download_button(
+            "Download free keyword ideas CSV",
+            free_df.to_csv(index=False).encode("utf-8"),
+            file_name="free_product_research_keywords.csv",
+            mime="text/csv",
+            key="free_research_download",
+        )
+
+        st.subheader("Record your observations")
+        with st.form("free_observation_form"):
+            observed_term = st.selectbox("Keyword checked", free_terms, key="free_observed_term")
+            competition_note = st.selectbox("Competition you observed", ["Not checked", "Low", "Medium", "High"], key="free_competition_note")
+            trend_note = st.selectbox("Google Trends direction", ["Not checked", "Rising", "Stable", "Falling", "Seasonal / mixed"], key="free_trend_note")
+            price_note = st.text_input("Typical prices you observed (optional)", placeholder="e.g. $18–$35", key="free_price_note")
+            product_note = st.text_area("Product gap / differentiation idea (optional)", placeholder="What could make your offer different?", key="free_product_note")
+            save_observation = st.form_submit_button("Save observation")
+        if "free_observations" not in st.session_state:
+            st.session_state["free_observations"] = []
+        if save_observation:
+            st.session_state["free_observations"].append({
+                "Keyword": observed_term,
+                "Competition observed": competition_note,
+                "Google Trends direction": trend_note,
+                "Price range observed": price_note.strip(),
+                "Differentiation idea": product_note.strip(),
+                "Market": st.session_state.get("free_research_market_saved", free_market),
+            })
+            st.success("Observation saved for this session.")
+        if st.session_state["free_observations"]:
+            observations_df = pd.DataFrame(st.session_state["free_observations"])
+            st.dataframe(observations_df, use_container_width=True, hide_index=True)
+            st.download_button(
+                "Download observations CSV",
+                observations_df.to_csv(index=False).encode("utf-8"),
+                file_name="free_product_research_observations.csv",
+                mime="text/csv",
+                key="free_observations_download",
+            )
+
 st.divider()
 st.title("Etsy Keyword Research")
 st.caption("Powered by RankHero API")
@@ -1006,3 +1111,198 @@ with rh_tab_keywords:
                 _rh_table(result, "keywords", "Keyword Ideas")
                 if include_keyword_trend:
                     st.caption("Trend values, when returned, are general web search estimates—not Etsy search volume.")
+
+
+# ---------------- AUTOMATED MULTI-NICHE PRODUCT HUNTER ----------------
+st.divider()
+st.title("🚀 Automated Multi-Niche Product Hunter")
+st.caption("Collects real active Etsy listings across starter niches, then creates clearly-labelled screening scores and SEO suggestions.")
+
+with st.expander("How this research works — read before running", expanded=False):
+    st.markdown(
+        "- **Real Etsy fields:** listing title, listing ID, URL, listed price, currency and creation date when returned by Etsy.\n"
+        "- **30-day filter:** only listings with a verifiable creation timestamp within the selected window are included.\n"
+        "- **Estimated fields:** screening score, suggested SEO title and tags are generated by this dashboard; they are not Etsy search-volume, sales or ranking data.\n"
+        "- **Un-hunted does not mean proven low competition:** a listing found here is a candidate for further research, not proof that few sellers offer it.\n"
+        "- This first version runs when you press the button. Daily unattended execution needs a separate scheduler (for example GitHub Actions) and will be added after this test works."
+    )
+
+# Broad starter seeds across Etsy categories. These are discovery queries, not a complete Etsy taxonomy.
+HUNT_SEEDS = {
+    "Artificial flowers & plants": ["artificial flower arrangement", "silk wedding bouquet"],
+    "Jewellery": ["personalized necklace", "handmade earrings"],
+    "Crochet & knitting": ["crochet baby booties", "crochet bag"],
+    "Clothing & accessories": ["crochet clothing", "handmade fashion accessories"],
+    "Home decor": ["handmade wall decor", "decorative home accessories"],
+    "Wedding": ["personalized wedding decor", "bridal bouquet"],
+    "Personalized gifts": ["custom personalized gift", "engraved keepsake"],
+    "Pet products": ["personalized pet accessory", "handmade dog bandana"],
+    "Digital products": ["printable planner", "digital wall art"],
+    "Craft supplies": ["jewelry making supplies", "embroidery supplies"],
+    "Baby & kids": ["handmade baby gift", "nursery decor"],
+    "Seasonal & holiday": ["Christmas handmade decor", "Halloween decorations"],
+    "Garden & outdoor": ["garden decor", "outdoor planter"],
+    "Vintage": ["vintage home decor", "vintage jewelry"],
+    "Art & collectibles": ["original art print", "handmade collectible"]
+}
+
+hunt_c1, hunt_c2, hunt_c3 = st.columns(3)
+with hunt_c1:
+    hunt_target = st.number_input("Unique products to collect", min_value=10, max_value=50, value=50, step=10)
+with hunt_c2:
+    hunt_days = st.selectbox("Listing age window", [7, 14, 30, 90], index=2, format_func=lambda x: f"Last {x} days")
+with hunt_c3:
+    hunt_market = st.selectbox("Marketplace query region", ["United States", "United Kingdom", "Canada", "Australia", "Global"], index=0, key="multi_hunt_market")
+
+selected_hunt_niches = st.multiselect(
+    "Niches to include",
+    list(HUNT_SEEDS.keys()),
+    default=list(HUNT_SEEDS.keys()),
+    help="All niches are selected by default. You can narrow the hunt if needed."
+)
+
+st.caption("The API key is read from your existing ETSY_API_KEY setting. This feature does not call RankHero and does not spend RankHero credits.")
+run_multi_hunt = st.button("🔎 Start product hunting", type="primary", key="run_multi_niche_hunt")
+
+
+def _hunt_seo_suggestions(source_title, niche_name):
+    import re
+    import itertools
+    clean = re.sub(r"[^A-Za-z0-9 ]+", " ", str(source_title or ""))
+    words = [w.lower() for w in clean.split() if len(w) > 2]
+    stop_words = {"the", "and", "for", "with", "from", "this", "that", "your", "new", "set", "item"}
+    useful = [w for w in words if w not in stop_words]
+    title = " ".join(str(source_title or "").split())[:140]
+    candidates = []
+    for n in (3, 2, 1):
+        for i in range(max(0, len(useful) - n + 1)):
+            phrase = " ".join(useful[i:i+n])
+            if 2 <= len(phrase) <= 20 and phrase not in candidates:
+                candidates.append(phrase)
+    niche_tag = re.sub(r"[^a-z0-9 ]", "", niche_name.lower()).strip()
+    if niche_tag and len(niche_tag) <= 20 and niche_tag not in candidates:
+        candidates.append(niche_tag)
+    tags = candidates[:13]
+    return title, tags
+
+
+if run_multi_hunt:
+    if not api_key or not str(api_key).strip():
+        st.error("ETSY_API_KEY missing. Is feature ke liye Etsy API key configured honi chahiye.")
+    elif not selected_hunt_niches:
+        st.warning("Kam az kam ek niche select karo.")
+    else:
+        import time
+        from datetime import datetime, timezone
+        from collections import Counter
+
+        cutoff = datetime.now(timezone.utc).timestamp() - int(hunt_days) * 86400
+        found = {}
+        query_errors = []
+        query_count = 0
+        progress = st.progress(0, text="Preparing niche searches...")
+        total_queries = sum(len(HUNT_SEEDS[n]) for n in selected_hunt_niches)
+
+        for niche_index, niche_name in enumerate(selected_hunt_niches):
+            for seed in HUNT_SEEDS[niche_name]:
+                query_count += 1
+                progress.progress(min(query_count / max(total_queries, 1), 1.0), text=f"Searching {niche_name}: {seed}")
+                try:
+                    resp = requests.get(
+                        "https://api.etsy.com/v3/application/listings/active",
+                        headers={"x-api-key": str(api_key).strip()},
+                        params={"keywords": seed, "limit": 50, "sort_on": "score"},
+                        timeout=25,
+                    )
+                    if not resp.ok:
+                        query_errors.append(f"{seed}: HTTP {resp.status_code}")
+                        time.sleep(0.26)
+                        continue
+                    payload = resp.json()
+                    for item in payload.get("results", []):
+                        listing_id = str(item.get("listing_id", "")).strip()
+                        if not listing_id or listing_id in found:
+                            continue
+                        created = item.get("creation_timestamp")
+                        try:
+                            created_num = float(created)
+                        except (TypeError, ValueError):
+                            continue
+                        if created_num < cutoff:
+                            continue
+                        price_obj = item.get("price") or {}
+                        amount = price_obj.get("amount")
+                        divisor = price_obj.get("divisor") or 100
+                        try:
+                            price_value = float(amount) / float(divisor) if amount is not None else None
+                        except (TypeError, ValueError, ZeroDivisionError):
+                            price_value = None
+                        title = str(item.get("title") or "").strip()
+                        if not title:
+                            continue
+                        age_days = max(0, int((datetime.now(timezone.utc).timestamp() - created_num) / 86400))
+                        # Transparent screening heuristic; deliberately not called demand or sales score.
+                        freshness_points = max(0, 50 - (age_days / max(int(hunt_days), 1)) * 50)
+                        title_points = min(25, len(set(title.lower().split())) * 2)
+                        price_points = 10 if price_value is not None else 0
+                        distinct_points = min(15, len(set(title.lower().split())) * 1.5)
+                        screening_score = round(freshness_points + title_points + price_points + distinct_points, 1)
+                        suggested_title, suggested_tags = _hunt_seo_suggestions(title, niche_name)
+                        found[listing_id] = {
+                            "Niche": niche_name,
+                            "Search phrase": seed,
+                            "Original Etsy title": title,
+                            "Suggested SEO title": suggested_title,
+                            "Suggested tags (draft)": ", ".join(suggested_tags),
+                            "Screening score (estimated)": screening_score,
+                            "Listing age (days)": age_days,
+                            "Listed price": price_value,
+                            "Currency": price_obj.get("currency_code", ""),
+                            "Listing ID": listing_id,
+                            "Etsy URL": item.get("url", ""),
+                            "Data created timestamp": created_num,
+                            "Metric type": "Real listing fields + estimated screening score / SEO suggestions",
+                        }
+                except requests.RequestException as exc:
+                    query_errors.append(f"{seed}: {exc}")
+                except (ValueError, TypeError) as exc:
+                    query_errors.append(f"{seed}: response parse error ({exc})")
+                # Stay comfortably below the commonly encountered per-second request rate.
+                time.sleep(0.26)
+                if len(found) >= int(hunt_target):
+                    break
+            if len(found) >= int(hunt_target):
+                break
+
+        progress.empty()
+        if found:
+            hunt_df = pd.DataFrame(list(found.values()))
+            hunt_df = hunt_df.sort_values("Screening score (estimated)", ascending=False).head(int(hunt_target)).reset_index(drop=True)
+            st.session_state["multi_hunt_results"] = hunt_df
+            st.session_state["multi_hunt_run_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            st.success(f"Hunting complete: {len(hunt_df)} unique Etsy listings found inside the {hunt_days}-day listing-age window.")
+        else:
+            st.session_state["multi_hunt_results"] = pd.DataFrame()
+            st.warning("Is run mein selected time window ke andar koi verifiable listing nahi mili. API access, search phrases aur date fields check karo.")
+        if query_errors:
+            with st.expander(f"Search warnings ({len(query_errors)})"):
+                st.write("\n".join(query_errors[:30]))
+
+if isinstance(st.session_state.get("multi_hunt_results"), pd.DataFrame) and not st.session_state["multi_hunt_results"].empty:
+    result_df = st.session_state["multi_hunt_results"]
+    st.subheader("Product hunting results")
+    st.caption(f"Last run: {st.session_state.get('multi_hunt_run_at', 'Not recorded')} · {len(result_df)} unique listings")
+    st.dataframe(
+        result_df.drop(columns=["Data created timestamp"], errors="ignore"),
+        use_container_width=True,
+        hide_index=True,
+        column_config={"Etsy URL": st.column_config.LinkColumn("Open Etsy listing")},
+    )
+    st.download_button(
+        "Download 50-product hunting report (CSV)",
+        result_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="etsy_multi_niche_product_hunt.csv",
+        mime="text/csv",
+        key="download_multi_hunt_csv",
+    )
+    st.info("Score sirf recency/title/price completeness ka screening heuristic hai. Ye demand, sales, profit, search volume ya low competition ka proof nahi hai. SEO title aur tags draft suggestions hain; publish karne se pehle verify/edit karein.")
