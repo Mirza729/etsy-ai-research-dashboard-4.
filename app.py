@@ -285,7 +285,7 @@ with st.expander("Open Free Product Research menu", expanded=True):
             variations = [seed] + [f"{m} {seed}" for m in modifiers if m.lower() not in seed.lower()]
             variations = variations[:free_count]
             st.session_state["free_research_terms"] = variations
-            st.session_state["free_research_seed"] = seed
+           st.session_state["free_research_seed_saved"] = seed
             st.session_state["free_research_market_saved"] = free_market
 
     free_terms = st.session_state.get("free_research_terms", [])
