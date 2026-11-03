@@ -1256,7 +1256,8 @@ if run_multi_hunt:
                 text=f"Searching {niche_name}: {seed}"
             )
 
-             try:
+            
+            try:
                 response = requests.get(
                     "https://api.etsy.com/v3/application/listings/active",
                     headers={
