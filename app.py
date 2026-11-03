@@ -1257,7 +1257,6 @@ if run_multi_hunt:
             )
 
             try:
-                response = requests.get(try:
     response = requests.get(
         "https://api.etsy.com/v3/application/listings/active",
         headers={
