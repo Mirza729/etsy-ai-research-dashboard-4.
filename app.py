@@ -1257,7 +1257,7 @@ if run_multi_hunt:
             )
 
             try:
-    response = requests.get(
+                  response = requests.get(
         "https://api.etsy.com/v3/application/listings/active",
         headers={
             "x-api-key": (
