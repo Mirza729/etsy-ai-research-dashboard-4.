@@ -1258,13 +1258,13 @@ if run_multi_hunt:
 
             
             try:
+                api_key = st.secrets["ETSY_API_KEY"].strip()
+                shared_secret = st.secrets["ETSY_SHARED_SECRET"].strip()
+
                 response = requests.get(
                     "https://api.etsy.com/v3/application/listings/active",
-                   headers={  "x-api-key": f"{api_key}:{shared_secret}"
-                        "x-api-key": (
-        f"{st.secrets['ETSY_API_KEY'].strip()}:"
-        f"{st.secrets['ETSY_SHARED_SECRET'].strip()}"
-                        )
+                    headers={
+                        "x-api-key": f"{api_key}:{shared_secret}"
                     },
                     params={
                         "keywords": seed,
@@ -1272,6 +1272,7 @@ if run_multi_hunt:
                         "sort_on": "score"
                     },
                     timeout=25
+            
                 )
                 
                 
