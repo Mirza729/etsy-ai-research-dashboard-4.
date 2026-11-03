@@ -1262,8 +1262,8 @@ if run_multi_hunt:
                     "https://api.etsy.com/v3/application/listings/active",
                     headers={
                         "x-api-key": (
-                            f"{st.secrets['ETSY_API_KEY'].strip()}:"
-                            f"{st.secrets['ETSY_SHARED_SECRET'].strip()}"
+        f"{st.secrets['ETSY_API_KEY'].strip()}:"
+        f"{st.secrets['ETSY_SHARED_SECRET'].strip()}"
                         )
                     },
                     params={
