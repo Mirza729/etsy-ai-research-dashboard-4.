@@ -1264,7 +1264,7 @@ if run_multi_hunt:
 shared_secret = st.secrets["ETSY_SHARED_SECRET"].strip()
 
 st.write("Keystring loaded:", bool(api_key))
-st.write("Shared Secret loaded:", bool(shared_secret)) headers={
+st.write("Shared Secret loaded:", bool(shared_secret)) headers={  "x-api-key": f"{api_key}:{shared_secret}"
                         "x-api-key": (
         f"{st.secrets['ETSY_API_KEY'].strip()}:"
         f"{st.secrets['ETSY_SHARED_SECRET'].strip()}"
