@@ -1257,7 +1257,22 @@ if run_multi_hunt:
             )
 
             try:
-                response = requests.get(
+                response = requests.get(try:
+    response = requests.get(
+        "https://api.etsy.com/v3/application/listings/active",
+        headers={
+            "x-api-key": (
+                f"{st.secrets['ETSY_API_KEY'].strip()}:"
+                f"{st.secrets['ETSY_SHARED_SECRET'].strip()}"
+            )
+        },
+        params={
+            "keywords": seed,
+            "limit": 50,
+            "sort_on": "score"
+        },
+        timeout=25
+    )
                     "https://api.etsy.com/v3/application/listings/active",
 headers={
     "x-api-key": (
