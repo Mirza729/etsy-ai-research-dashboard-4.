@@ -1273,7 +1273,6 @@ if run_multi_hunt:
                     },
                     timeout=25
                 )
-    )
                     "https://api.etsy.com/v3/application/listings/active",
 headers={
     "x-api-key": (
