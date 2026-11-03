@@ -1260,7 +1260,11 @@ if run_multi_hunt:
             try:
                 response = requests.get(
                     "https://api.etsy.com/v3/application/listings/active",
-                    headers={
+                   api_key = st.secrets["ETSY_API_KEY"].strip()
+shared_secret = st.secrets["ETSY_SHARED_SECRET"].strip()
+
+st.write("Keystring loaded:", bool(api_key))
+st.write("Shared Secret loaded:", bool(shared_secret)) headers={
                         "x-api-key": (
         f"{st.secrets['ETSY_API_KEY'].strip()}:"
         f"{st.secrets['ETSY_SHARED_SECRET'].strip()}"
