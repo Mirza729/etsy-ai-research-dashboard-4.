@@ -61,7 +61,7 @@ with tab1:
             st.warning("Enter a keyword first.")
         else:
             try:
-                response = requests.get(
+                response = requests.get(shared_secret = st.secrets["ETSY_SHARED_SECRET"].strip()
                     "https://api.etsy.com/v3/application/listings/active",
 headers={
     "x-api-key": f"{api_key.strip()}:{shared_secret.strip()}"
