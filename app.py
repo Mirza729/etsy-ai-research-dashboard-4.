@@ -63,8 +63,9 @@ with tab1:
             try:
                 response = requests.get(
                     "https://api.etsy.com/v3/application/listings/active",
-                    headers={"x-api-key": api_key.strip()},
-                    params={
+headers={
+    "x-api-key": f"{api_key.strip()}:{shared_secret.strip()}"
+},                    params={
                         "keywords": keyword.strip(),
                         "limit": limit,
                         "sort_on": "score"
